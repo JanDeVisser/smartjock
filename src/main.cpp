@@ -7,16 +7,23 @@ enum class Action {
     Toggle,
 };
 
-struct Color {
+enum class Mode {
+    Off,
+    Solid,
+    Flashing,
+};
+
+struct LED {
     int button_pin;
     int led_pin;
     int state { LOW };
+    Mode mode { Mode::Off };
 
     int button_state { 0 };
     int last_button_state { 0 };
     unsigned long last_button_reading { 0 };
 
-    Color(int button, int led)
+    LED(int button, int led)
         : button_pin(button)
         , led_pin(led)
     {
@@ -42,6 +49,13 @@ struct Color {
         led_off();
     }
 
+
+    void flash()
+    {
+        state = (state == LOW) ? HIGH : LOW;
+        digitalWrite(led_pin, state);
+    }
+
     Action check_button()
     {
         Action ret = Action::Nothing;
@@ -54,7 +68,7 @@ struct Color {
             if (reading != button_state) {
                 button_state = reading;
                 if (button_state == HIGH) {
-                    ret = Action::Toggle;
+                    ret = on_button_pressed();
                 }
             }
         }
@@ -62,39 +76,75 @@ struct Color {
         return ret;
     }
 
-    void flash()
+    virtual Action on_button_pressed() = 0;
+};
+
+struct Color : public LED {
+    Color(int button, int led)
+        : LED(button, led)
     {
-        state = (state == LOW) ? HIGH : LOW;
-        digitalWrite(led_pin, state);
+        mode = Mode::Flashing;
+    }
+
+    Action on_button_pressed() override
+    {
+        return Action::Toggle;
     }
 };
 
-struct Colors {
-    static Colors* the() {
+struct White : public LED {
+    Mode mode { Mode::Off };
+
+    White(int button, int led) : LED(button, led)
+    {
+    }
+
+
+    Action on_button_pressed() override
+    {
+        Action ret = Action::Nothing;
+        switch (mode) {
+        case Mode::Off:
+            mode = Mode::Flashing;
+            ret = Action::Toggle;
+            break;
+        case Mode::Flashing:
+            mode = Mode::Solid;
+            ret = Action::Nothing;
+            break;
+        case Mode::Solid:
+            mode = Mode::Off;
+            ret = Action::Toggle;
+            break;
+        }
+        return ret;
+    }
+};
+
+struct SmartJock {
+    static SmartJock* the() {
         if (!m_instance)
-            m_instance = new Colors();
+            m_instance = new SmartJock();
         return m_instance;
     }
 
-    Colors()
+    SmartJock() : white(new White(13, 4))
     {
         colors[0] = new Color(9, 0);
         colors[1] = new Color(10, 1);
         colors[2] = new Color(11, 2);
         colors[3] = new Color(12, 3);
-    }
 
-    void all_off()
-    {
         for (int ix = 0; ix < 4; ++ix) {
-            colors[ix]->led_off();
+            leds[ix] = colors[ix];
         }
+        leds[4] = white;
     }
 
     void setup()
     {
-        for (int ix = 0; ix < 4; ++ix) {
-            colors[ix]->setup_pins();
+        for (auto *led : leds) {
+            led->setup_pins();
         }
     }
 
@@ -116,35 +166,48 @@ struct Colors {
                 break;
             }
         }
+        if (white->check_button() == Action::Toggle) {
+            switch (white->mode) {
+            case Mode::Off:
+                white->led_off();
+                break;
+            case Mode::Solid:
+                white->led_on();
+                break;
+            case Mode::Flashing:
+                break;
+            }
+        }
 
         if (current_ts - prev_ts >= 1000) {
             prev_ts = current_ts;
             if (current >= 0) {
                 colors[current]->flash();
             }
+            if (white->mode == Mode::Flashing) {
+                white->flash();
+            }
         }
     }
 
     Color *colors[4];
+    White *white;
+    LED   *leds[5];
 
 private:
-    static Colors *m_instance;
+    static SmartJock*m_instance;
     unsigned long prev_ts = 0;
     int current = -1;
 };
 
-Colors* Colors::m_instance = nullptr;
+SmartJock* SmartJock::m_instance = nullptr;
 
-
-// the setup function runs once when you press reset or power the board
 void setup()
 {
-    Colors::the()->setup();
-    // Colors::the()->colors[0].led_on();
+    SmartJock::the()->setup();
 }
 
-// the loop function runs over and over again forever
 void loop()
 {
-    Colors::the()->loop();
+    SmartJock::the()->loop();
 }
