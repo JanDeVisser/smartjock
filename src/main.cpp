@@ -195,7 +195,7 @@ struct SmartJock {
     LED   *leds[5];
 
 private:
-    static SmartJock*m_instance;
+    static SmartJock *m_instance;
     unsigned long prev_ts = 0;
     int current = -1;
 };
